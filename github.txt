@@ -1,0 +1,629 @@
+// FULL STACK AFFILIATE ADMIN PANEL (Login + Database + API)
+// Tech: Node.js + Express + MongoDB + React
+
+// ================= BACKEND =================
+// 1. Install: npm init -y
+// npm install express mongoose cors bcryptjs jsonwebtoken
+
+// server.js
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// MongoDB Connect
+mongoose.connect("mongodb://127.0.0.1:27017/affiliateDB");
+
+// Schemas
+const UserSchema = new mongoose.Schema({
+  username: String,
+  password: String,
+});
+
+const ProductSchema = new mongoose.Schema({
+  name: String,
+  price: String,
+  discount: String,
+  link: String,
+});
+
+const User = mongoose.model("User", UserSchema);
+const Product = mongoose.model("Product", ProductSchema);
+
+// Register
+app.post("/register", async (req, res) => {
+  const hashed = await bcrypt.hash(req.body.password, 10);
+  const user = new User({ username: req.body.username, password: hashed });
+  await user.save();
+  res.send("User Created");
+});
+
+// Login
+app.post("/login", async (req, res) => {
+  const user = await User.findOne({ username: req.body.username });
+  if (!user) return res.send("User not found");
+
+  const isMatch = await bcrypt.compare(req.body.password, user.password);
+  if (!isMatch) return res.send("Wrong Password");
+
+  const token = jwt.sign({ id: user._id }, "secretkey");
+  res.json({ token });
+});
+
+// Add Product
+app.post("/add-product", async (req, res) => {
+  const product = new Product(req.body);
+  await product.save();
+  res.send("Product Added");
+});
+
+// Get Products
+app.get("/products", async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
+});
+
+// Delete Product
+app.delete("/delete/:id", async (req, res) => {
+  await Product.findByIdAndDelete(req.params.id);
+  res.send("Deleted");
+});
+
+app.listen(5000, () => console.log("Server running on port 5000"));
+
+// ================= FRONTEND (React Admin) =================
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+
+export default function AdminPanel() {
+  const [token, setToken] = useState(localStorage.getItem("token"));
+  const [login, setLogin] = useState({ username: "", password: "" });
+  const [products, setProducts] = useState([]);
+  const [form, setForm] = useState({ name: "", price: "", discount: "", link: "" });
+
+  const handleLogin = async () => {
+    const res = await axios.post("http://localhost:5000/login", login);
+    localStorage.setItem("token", res.data.token);
+    setToken(res.data.token);
+  };
+
+  const fetchProducts = async () => {
+    const res = await axios.get("http://localhost:5000/products");
+    setProducts(res.data);
+  };
+
+  useEffect(() => {
+    if (token) fetchProducts();
+  }, [token]);
+
+  const addProduct = async () => {
+    await axios.post("http://localhost:5000/add-product", form);
+    fetchProducts();
+  };
+
+  const deleteProduct = async (id) => {
+    await axios.delete(`http://localhost:5000/delete/${id}`);
+    fetchProducts();
+  };
+
+  if (!token) {
+    return (
+      <div className="p-6">
+        <h2>Login</h2>
+        <input placeholder="Username" onChange={(e) => setLogin({ ...login, username: e.target.value })} />
+        <input type="password" placeholder="Password" onChange={(e) => setLogin({ ...login, password: e.target.value })} />
+        <button onClick={handleLogin}>Login</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <h1>Admin Dashboard</h1>
+
+      <div>
+        <input placeholder="Name" onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <input placeholder="Price" onChange={(e) => setForm({ ...form, price: e.target.value })} />
+        <input placeholder="Discount" onChange={(e) => setForm({ ...form, discount: e.target.value })} />
+        <input placeholder="Link" onChange={(e) => setForm({ ...form, link: e.target.value })} />
+        <button onClick={addProduct}>Add</button>
+      </div>
+
+      {products.map((p) => (
+        <div key={p._id}>
+          <h3>{p.name}</h3>
+          <button onClick={() => window.open(p.link)}>View</button>
+          <button onClick={() => deleteProduct(p._id)}>Delete</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ================= DEPLOY GUIDE =================
+// Backend: Render.com / Railway.app
+// Frontend: Vercel.com / Netlify.com
+// Database: MongoDB Atlas (free)
+
+// Steps:
+// 1. MongoDB Atlas account बनाओ
+// 2. Connection string backend में डालो
+// 3. Backend deploy करो (Render)
+// 4. Frontend deploy करो (Vercel)
+// 5. API URL localhost से replace करो
+
+// ================= AUTO PRICE FETCH SYSTEM =================
+// Amazon + Flipkart Auto Price Update (API / Scraping)
+
+// ⚠️ NOTE: Official APIs limited हैं, इसलिए 2 तरीके हैं:
+// 1. RapidAPI / Affiliate API (Recommended)
+// 2. Web Scraping (Advanced)
+
+// -------- OPTION 1: RapidAPI (Easy तरीका) --------
+// npm install axios
+
+const axios = require("axios");
+
+async function fetchAmazonPrice(keyword) {
+  const res = await axios.get("https://real-time-amazon-data.p.rapidapi.com/search", {
+    params: { query: keyword, country: "IN" },
+    headers: {
+      "X-RapidAPI-Key": "YOUR_API_KEY",
+      "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com",
+    },
+  });
+
+  return res.data.data.products[0];
+}
+
+// -------- OPTION 2: Flipkart Scraping --------
+// npm install cheerio axios
+
+const cheerio = require("cheerio");
+
+async function fetchFlipkartPrice(url) {
+  const { data } = await axios.get(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
+
+  const $ = cheerio.load(data);
+  const price = $("._30jeq3._16Jk6d").text();
+
+  return price;
+}
+
+// -------- AUTO UPDATE DATABASE --------
+// हर 1 घंटे में price update
+
+const cron = require("node-cron");
+
+cron.schedule("0 * * * *", async () => {
+  const products = await Product.find();
+
+  for (let p of products) {
+    try {
+      const updated = await fetchAmazonPrice(p.name);
+      p.price = updated.price;
+      p.discount = updated.discounted_price;
+      await p.save();
+    } catch (err) {
+      console.log("Update Failed", err.message);
+    }
+  }
+
+  console.log("Prices Updated");
+});
+
+// -------- FRONTEND AUTO REFRESH --------
+// हर 30 सेकंड में new data fetch
+
+useEffect(() => {
+  fetchProducts();
+  const interval = setInterval(fetchProducts, 30000);
+  return () => clearInterval(interval);
+}, []);
+
+// ================= FINAL RESULT =================
+// ✅ Auto price update
+// ✅ Latest discount show
+// ✅ Real-time deal website
+
+// ================= AUTO PRODUCT IMPORT (1000+ PRODUCTS) =================
+// Categories: Mobiles, Electronics, Earbuds, Audio
+
+// तरीका: API से bulk import + database save
+
+// npm install axios
+
+const axios = require("axios");
+
+async function importProducts(category) {
+  try {
+    const res = await axios.get("https://real-time-amazon-data.p.rapidapi.com/search", {
+      params: {
+        query: category,
+        country: "IN",
+        page: "1"
+      },
+      headers: {
+        "X-RapidAPI-Key": "YOUR_API_KEY",
+        "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"
+      }
+    });
+
+    const items = res.data.data.products;
+
+    for (let item of items) {
+      const product = new Product({
+        name: item.product_title,
+        price: item.product_price,
+        discount: item.product_price,
+        link: item.product_url
+      });
+
+      await product.save();
+    }
+
+    console.log(category + " imported");
+
+  } catch (err) {
+    console.log("Import Error", err.message);
+  }
+}
+
+// -------- BULK IMPORT RUN --------
+async function bulkImport() {
+  await importProducts("mobile phones");
+  await importProducts("earbuds");
+  await importProducts("bluetooth headphones");
+  await importProducts("electronics gadgets");
+}
+
+bulkImport();
+
+// -------- PAGINATION (1000+ PRODUCTS) --------
+async function importBulk(category) {
+  for (let i = 1; i <= 10; i++) {
+    const res = await axios.get("https://real-time-amazon-data.p.rapidapi.com/search", {
+      params: {
+        query: category,
+        country: "IN",
+        page: i.toString()
+      },
+      headers: {
+        "X-RapidAPI-Key": "YOUR_API_KEY",
+        "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"
+      }
+    });
+
+    const items = res.data.data.products;
+
+    for (let item of items) {
+      await Product.create({
+        name: item.product_title,
+        price: item.product_price,
+        discount: item.product_price,
+        link: item.product_url
+      });
+    }
+
+    console.log(`Page ${i} imported for ${category}`);
+  }
+}
+
+// Run all categories
+async function startFullImport() {
+  await importBulk("mobile phones");
+  await importBulk("earbuds");
+  await importBulk("headphones");
+  await importBulk("electronics");
+}
+
+startFullImport();
+
+// ================= FINAL RESULT =================
+// ✅ 1000+ products auto import
+// ✅ Multiple categories (Mobiles, Audio, Electronics)
+// ✅ Ready affiliate links
+// ✅ Scalable system
+
+// ================= ADVANCED AUTOMATION SYSTEM =================
+
+// 1️⃣ DAILY AUTO IMPORT (CRON JOB)
+// हर दिन सुबह 8 बजे auto import
+
+const cron = require("node-cron");
+
+cron.schedule("0 8 * * *", async () => {
+  console.log("Starting Daily Import...");
+  await startFullImport();
+  console.log("Daily Import Completed");
+});
+
+// 2️⃣ DUPLICATE REMOVE LOGIC
+// same product बार-बार add ना हो
+
+async function safeCreateProduct(item) {
+  const exists = await Product.findOne({ name: item.product_title });
+
+  if (!exists) {
+    await Product.create({
+      name: item.product_title,
+      price: item.product_price,
+      discount: item.product_price,
+      link: item.product_url,
+      category: item.category || "electronics"
+    });
+  } else {
+    console.log("Duplicate skipped:", item.product_title);
+  }
+}
+
+// update import loop
+for (let item of items) {
+  await safeCreateProduct(item);
+}
+
+// 3️⃣ CATEGORY WISE FILTER SYSTEM
+
+// Schema update
+const ProductSchema = new mongoose.Schema({
+  name: String,
+  price: String,
+  discount: String,
+  link: String,
+  category: String
+});
+
+// Category assign logic
+function detectCategory(name) {
+  name = name.toLowerCase();
+
+  if (name.includes("mobile")) return "mobiles";
+  if (name.includes("earbud") || name.includes("headphone")) return "audio";
+  if (name.includes("laptop")) return "laptops";
+  return "electronics";
+}
+
+// use in import
+await Product.create({
+  name: item.product_title,
+  price: item.product_price,
+  discount: item.product_price,
+  link: item.product_url,
+  category: detectCategory(item.product_title)
+});
+
+// 4️⃣ API FILTER (Frontend / Backend)
+
+// Get by category
+app.get("/products/:category", async (req, res) => {
+  const data = await Product.find({ category: req.params.category });
+  res.json(data);
+});
+
+// FRONTEND FILTER BUTTON
+// example: mobiles button
+
+<button onClick={() => fetchCategory("mobiles")}>Mobiles</button>
+<button onClick={() => fetchCategory("audio")}>Audio</button>
+<button onClick={() => fetchCategory("electronics")}>Electronics</button>
+
+const fetchCategory = async (cat) => {
+  const res = await axios.get(`http://localhost:5000/products/${cat}`);
+  setProducts(res.data);
+};
+
+// ================= FINAL RESULT =================
+// ✅ Daily auto import system
+// ✅ Duplicate products blocked
+// ✅ Smart category filtering
+// ✅ Scalable 1000+ product system
+
+// ================= TELEGRAM AUTO DEAL BOT =================
+
+// npm install node-telegram-bot-api
+
+const TelegramBot = require("node-telegram-bot-api");
+const bot = new TelegramBot("YOUR_TELEGRAM_BOT_TOKEN", { polling: true });
+
+const CHANNEL_ID = "@yourchannel";
+
+async function postDealsToTelegram() {
+  const products = await Product.find().limit(5).sort({ _id: -1 });
+
+  for (let p of products) {
+    const message = `🔥 ${p.name}
+
+💰 Price: ${p.price}
+💸 Deal: ${p.discount}
+
+👉 Buy Now: ${p.link}`;
+    bot.sendMessage(CHANNEL_ID, message);
+  }
+}
+
+// हर 2 घंटे में auto पोस्ट
+cron.schedule("0 */2 * * *", () => {
+  console.log("Posting deals to Telegram...");
+  postDealsToTelegram();
+});
+
+// ================= SEO SYSTEM =================
+
+// 1️⃣ SEO Friendly URL
+// example: /product/iphone-14
+
+app.get("/product/:slug", async (req, res) => {
+  const slug = req.params.slug.replace(/-/g, " ");
+  const product = await Product.findOne({ name: new RegExp(slug, "i") });
+  res.json(product);
+});
+
+// 2️⃣ SLUG GENERATOR
+function generateSlug(name) {
+  return name.toLowerCase().replace(/ /g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+// save slug in DB
+await Product.create({
+  name: item.product_title,
+  price: item.product_price,
+  discount: item.product_price,
+  link: item.product_url,
+  category: detectCategory(item.product_title),
+  slug: generateSlug(item.product_title)
+});
+
+// 3️⃣ META TAGS (Frontend)
+
+// React Helmet install: npm install react-helmet
+
+import { Helmet } from "react-helmet";
+
+function ProductPage({ product }) {
+  return (
+    <>
+      <Helmet>
+        <title>{product.name} Best Price</title>
+        <meta name="description" content={`Buy ${product.name} at best price ${product.discount}`} />
+      </Helmet>
+      <h1>{product.name}</h1>
+    </>
+  );
+}
+
+// 4️⃣ SEO BLOG PAGES
+// example keywords pages
+
+app.get("/best-mobiles-under-20000", async (req, res) => {
+  const data = await Product.find({ category: "mobiles" }).limit(20);
+  res.json(data);
+});
+
+// 5️⃣ SITEMAP GENERATOR
+
+app.get("/sitemap.xml", async (req, res) => {
+  const products = await Product.find();
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
+
+  products.forEach(p => {
+    xml += `<url><loc>https://yourdomain.com/product/${p.slug}</loc></url>`;
+  });
+
+  xml += "</urlset>";
+  res.header("Content-Type", "application/xml");
+  res.send(xml);
+});
+
+// ================= FINAL RESULT =================
+// ✅ Telegram auto deal posting
+// ✅ SEO optimized pages
+// ✅ Google ranking ready
+// ✅ Free traffic system
+
+// ================= EARNINGS DASHBOARD =================
+
+// Goal: Clicks + Estimated Earnings Track करना
+
+// 1️⃣ UPDATE PRODUCT SCHEMA
+const ProductSchema = new mongoose.Schema({
+  name: String,
+  price: String,
+  discount: String,
+  link: String,
+  category: String,
+  slug: String,
+  clicks: { type: Number, default: 0 },
+  earnings: { type: Number, default: 0 }
+});
+
+// 2️⃣ TRACK CLICK API
+app.post("/track-click/:id", async (req, res) => {
+  const product = await Product.findById(req.params.id);
+
+  product.clicks += 1;
+
+  // अनुमानित earning (5%)
+  const price = parseFloat(product.discount.replace(/[^0-9]/g, ""));
+  product.earnings += price * 0.05;
+
+  await product.save();
+
+  res.send("Tracked");
+});
+
+// 3️⃣ DASHBOARD API
+app.get("/dashboard", async (req, res) => {
+  const products = await Product.find();
+
+  let totalClicks = 0;
+  let totalEarnings = 0;
+
+  products.forEach(p => {
+    totalClicks += p.clicks;
+    totalEarnings += p.earnings;
+  });
+
+  res.json({ totalClicks, totalEarnings, products });
+});
+
+// 4️⃣ FRONTEND DASHBOARD UI (React)
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
+export function Dashboard() {
+  const [data, setData] = useState({ totalClicks: 0, totalEarnings: 0, products: [] });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    const res = await axios.get("http://localhost:5000/dashboard");
+    setData(res.data);
+  };
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Earnings Dashboard</h1>
+
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="p-4 bg-green-200 rounded">Total Clicks: {data.totalClicks}</div>
+        <div className="p-4 bg-yellow-200 rounded">Total Earnings: ₹{data.totalEarnings.toFixed(2)}</div>
+      </div>
+
+      <h2 className="text-xl mb-2">Product Stats</h2>
+      {data.products.map(p => (
+        <div key={p._id} className="border p-3 mb-2">
+          <h3>{p.name}</h3>
+          <p>Clicks: {p.clicks}</p>
+          <p>Earnings: ₹{p.earnings.toFixed(2)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 5️⃣ TRACK CLICK FRONTEND BUTTON
+
+<Button onClick={async () => {
+  await axios.post(`http://localhost:5000/track-click/${p._id}`);
+  window.open(p.link);
+}}>
+  Buy Now
+</Button>
+
+
+
+
+
+
+
